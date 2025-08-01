@@ -1,6 +1,17 @@
 from config import DELIMITERS
-from nodes.textnode import TextType, TextNode
+from nodes.textnode import TextType, TextNode, text_node_to_html_node
+from nodes.parentnode import ParentNode
 import re
+from enum import Enum
+
+class BlockType(Enum):
+    PARAGRAPH = "p"
+    HEADING = "h"
+    CODE = "pre"
+    QUOTE = "blockquote"
+    UNORDERED_LIST = "ul"
+    ORDERED_LIST = "ol"
+
 
 # params = list filled with nodes.TextType
 # return = list of updated nodes in which every TextNode of TextType.TEXT was properly split if it contained properly placed delimiters mentioned in config.py
@@ -39,7 +50,12 @@ def split_nodes_delimiter(old_nodes):
 
             # if delimiter is opening, we add the style to active_styles
             if kind == 'open':
-                active_styles.append(style)
+                if style == TextType.CODE:
+                # Clear all styles and only allow CODE
+                    active_styles = [TextType.CODE]
+                else:
+                    if TextType.CODE not in active_styles:
+                        active_styles.append(style)
             # if it's closing, we remove it from active_styles if it exists
             elif kind == 'close':
                 if style in active_styles:
@@ -222,3 +238,132 @@ def text_to_textnodes(text):
     node = TextNode(text, TextType.TEXT)
     return split_nodes_image(split_nodes_links(split_nodes_delimiter([node])))
 
+def markdown_to_blocks(markdown):
+    raw_blocks = re.split(r'\n\s*\n', markdown.strip())
+    blocks = []
+    for block in raw_blocks:
+        lines = block.splitlines()
+        stripped_lines = [line.strip() for line in lines]
+        blocks.append('\n'.join(stripped_lines))
+    return blocks
+
+def block_to_block_type(block):
+    lines = block.splitlines()
+    if (len(lines) == 0):
+        return BlockType.PARAGRAPH
+    if (re.match(r"^#{1,6} ", lines[0])):
+        return BlockType.HEADING
+    if block.startswith("```") and block.endswith("```"):
+        return BlockType.CODE
+    if all(line.startswith(">") for line in lines):
+        return BlockType.QUOTE
+    if all(re.match(r"^- ", line) for line in lines):
+        return BlockType.UNORDERED_LIST
+    if all(re.match(r"^\d+\. ", line) for line in lines):
+        for i, line in enumerate(lines):
+            expected_prefix = f"{i + 1}. "
+            if not line.startswith(expected_prefix):
+                break
+        else:
+            return BlockType.ORDERED_LIST
+    return BlockType.PARAGRAPH
+
+def markdown_to_html_node(markdown):
+    blocks = markdown_to_blocks(markdown)
+    children = []
+    for block in blocks:
+        block_type = block_to_block_type(block)
+        tag = block_type.value
+        if (block_type == BlockType.HEADING):
+            tag += str(count_leading_hashes(block))
+        block_children = text_to_children(modify_block(block, block_type))
+        children.append(ParentNode(tag,block_children))
+    return ParentNode("div", children)
+
+def text_to_children(text):
+    text_nodes = text_to_textnodes(text)
+    return nested_nodes_checker(text_nodes)
+
+
+def nested_nodes_checker(text_nodes):
+    if not text_nodes:
+        raise Exception("Block doesn't have any nodes!")
+
+    i = 0
+    html_nodes = []
+
+    while i < len(text_nodes):
+        current = text_nodes[i]
+        group = [current]
+        j = i + 1
+        while j < len(text_nodes) and text_nodes[j].text == current.text:
+            group.append(text_nodes[j])
+            j += 1
+
+        if len(group) == 1:
+            html_nodes.append(text_node_to_html_node(current))
+        else:
+            html_nodes.append(build_nested_html(group))
+        i = j
+    return html_nodes
+
+def build_nested_html(group):
+    node = text_node_to_html_node(group[-1])
+
+    for text_node in reversed(group[:-1]):
+        tag = get_tag_from_text_type(text_node.text_type)
+        if tag == "a":
+            node = ParentNode(tag, [node], props={"href": text_node.url})
+        else:
+            node = ParentNode(tag, [node])
+    return node
+
+def get_tag_from_text_type(text_type):
+    match(text_type):
+        case(TextType.BOLD):
+            return "b"
+        case(TextType.ITALIC):
+            return "i"
+        case(TextType.CODE):
+            return "code"
+        case(TextType.LINK):
+            return "a"
+        case _:
+            raise Excepction("invalid text type")
+
+def count_leading_hashes(text):
+    count = 0
+    for char in text:
+        if char == '#':
+            count += 1
+        else:
+            break
+    return count
+
+def modify_block(block, block_type):
+    lines = block.splitlines()
+
+    if block_type == BlockType.HEADING:
+        # Only modify first line
+        return re.sub(r"^#{1,6}\s*", "", lines[0])
+
+    elif block_type == BlockType.CODE:
+        # Drop the first and last line (the ``` markers)
+        return "\n".join(lines[1:-1])
+
+    elif block_type == BlockType.QUOTE:
+        # Remove leading '>' (already stripped of space)
+        return "\n".join([line[1:] if line.startswith(">") else line for line in lines])
+
+    elif block_type == BlockType.UNORDERED_LIST:
+        return "\n".join(
+            [f"<li>{line[2:].strip()}</li>" for line in lines if line.startswith("- ")]
+        )
+
+    elif block_type == BlockType.ORDERED_LIST:
+        return "\n".join(
+            [f"<li>{re.sub(r'^\d+\.\s*', '', line).strip()}</li>" for line in lines]
+        )
+
+    else:
+        return block

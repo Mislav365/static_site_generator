@@ -1,7 +1,7 @@
 import unittest
 
 from nodes.textnode import TextNode,TextType
-from markdownparser import split_nodes_delimiter,extract_markdown_images,extract_markdown_links, split_nodes_image, split_nodes_links, text_to_textnodes
+from markdownparser import split_nodes_delimiter,extract_markdown_images,extract_markdown_links, split_nodes_image, split_nodes_links, text_to_textnodes,markdown_to_blocks,BlockType,block_to_block_type, markdown_to_html_node
 
 class TestMarkdownParter(unittest.TestCase):
 
@@ -352,6 +352,167 @@ class TestMarkdownParter(unittest.TestCase):
             TextNode("link", TextType.LINK, "http://link.com"),
         ], textnodes)
 
+    def test_markdown_to_blocks(self):
+        md = """
+        This is **bolded** paragraph
+
+        This is another paragraph with _italic_ text and `code` here
+        This is the same paragraph on a new line
+
+        - This is a list
+        - with items
+        """
+        blocks = markdown_to_blocks(md)
+        self.assertEqual(
+            blocks,
+            [
+                "This is **bolded** paragraph",
+                "This is another paragraph with _italic_ text and `code` here\nThis is the same paragraph on a new line",
+                "- This is a list\n- with items",
+            ],
+        )
+
+    def test_markdown_to_blocks_multiple_paragraphs(self):
+        md = "Paragraph one.\n\nParagraph two.\n\nParagraph three."
+        blocks = markdown_to_blocks(md)
+        self.assertEqual(blocks, [
+            "Paragraph one.",
+            "Paragraph two.",
+            "Paragraph three."
+        ])
+
+    def test_markdown_to_blocks_strip_whitespace_lines(self):
+        md = "   Paragraph one.   \n\n   Paragraph two.\n\n\n\n"
+        blocks = markdown_to_blocks(md)
+        self.assertEqual(blocks, [
+            "Paragraph one.",
+            "Paragraph two."
+        ])
+
+    def test_markdown_to_blocks_preserve_multiline_blocks(self):
+        md = "Line 1\nLine 2\n\nLine 3\nLine 4"
+        blocks = markdown_to_blocks(md)
+        self.assertEqual(blocks, [
+            "Line 1\nLine 2",
+            "Line 3\nLine 4"
+        ])
+
+    def test_block_to_block_type_heading_levels(self):
+        self.assertEqual(block_to_block_type("# Heading 1"), BlockType.HEADING)
+        self.assertEqual(block_to_block_type("###### Heading 6"), BlockType.HEADING)
+        self.assertEqual(block_to_block_type("Paragraph"), BlockType.PARAGRAPH)
+        self.assertEqual(block_to_block_type("####### Paragraph"), BlockType.PARAGRAPH)
+
+    def test_block_to_block_type_code_block(self):
+        code_block = "```\ndef func():\n    pass\n```"
+        self.assertEqual(block_to_block_type(code_block), BlockType.CODE)
+
+    def test_block_to_block_type_quote_block(self):
+        block = "> This is a quote\n> It has multiple lines"
+        self.assertEqual(block_to_block_type(block), BlockType.QUOTE)
+
+    def test_block_to_block_type_unordered_list(self):
+        block = "- Item 1\n- Item 2\n- Item 3"
+        self.assertEqual(block_to_block_type(block), BlockType.UNORDERED_LIST)
+
+    def test_block_to_block_type_ordered_list_valid(self):
+        block = "1. First\n2. Second\n3. Third"
+        self.assertEqual(block_to_block_type(block), BlockType.ORDERED_LIST)
+
+    def test_block_to_block_type_ordered_list_invalid_numbering(self):
+        block = "1. First\n2. Second\n4. Wrong"
+        self.assertEqual(block_to_block_type(block), BlockType.PARAGRAPH)
+
+    def test_block_to_block_type_mixed_content(self):
+        block = "This is a regular paragraph with **bold** and _italic_."
+        self.assertEqual(block_to_block_type(block), BlockType.PARAGRAPH)
+
+    def test_block_to_block_type_invalid_unordered(self):
+        block = "- Item 1\n• Item 2"
+        self.assertEqual(block_to_block_type(block), BlockType.PARAGRAPH)
+
+    def test_block_to_block_type_empty_block(self):
+        self.assertEqual(block_to_block_type(""), BlockType.PARAGRAPH)
+
+    def test_block_to_block_type_code_block_inline_ticks(self):
+        block = "```This is not a block```"
+        self.assertEqual(block_to_block_type(block), BlockType.CODE)
+
+    def test_block_to_block_type_unordered_list_with_extra_indent(self):
+        block = "- Item 1\n   - Subitem"
+        self.assertEqual(block_to_block_type(block), BlockType.PARAGRAPH)
+
+    def test_paragraph_block(self):
+        markdown = "This is a simple paragraph."
+        node = markdown_to_html_node(markdown)
+        self.assertEqual(node.tag, "div")
+        self.assertEqual(len(node.children), 1)
+        self.assertEqual(node.children[0].tag, "p")
+        self.assertEqual(node.children[0].children[0].value, "This is a simple paragraph.")
+
+    def test_heading_level_1(self):
+        markdown = "# Heading One"
+        node = markdown_to_html_node(markdown)
+        self.assertEqual(node.children[0].tag, "h1")
+        self.assertEqual(node.children[0].children[0].value, "Heading One")
+
+    def test_heading_level_3(self):
+        markdown = "### Third Level Heading"
+        node = markdown_to_html_node(markdown)
+        self.assertEqual(node.children[0].tag, "h3")
+        self.assertEqual(node.children[0].children[0].value, "Third Level Heading")
+
+    def test_inline_code_block(self):
+        markdown = "```This is not a block```"
+        node = markdown_to_html_node(markdown)
+        self.assertEqual(node.children[0].tag, "pre")
+        self.assertIn("This is not a block", node.children[0].children[0].value)
+
+    def test_code_block_multiline(self):
+        markdown = "```\nline 1\nline 2\n```"
+        node = markdown_to_html_node(markdown)
+        self.assertEqual(node.children[0].tag, "pre")
+        self.assertIn("line 1", node.children[0].children[0].value)
+        self.assertIn("line 2", node.children[0].children[0].value)
+
+    def test_blockquote(self):
+        markdown = "> This is a quote"
+        node = markdown_to_html_node(markdown)
+        self.assertEqual(node.children[0].tag, "blockquote")
+        self.assertEqual(node.children[0].children[0].value.strip(), "This is a quote")
+
+    def test_unordered_list(self):
+        markdown = "- Item 1\n- Item 2"
+        node = markdown_to_html_node(markdown)
+        print(node.to_html())
+        self.assertEqual(node.children[0].tag, "ul")
+        self.assertEqual(len(node.children[0].children), 2)
+        self.assertEqual(node.children[0].children[0].children[0].value, "Item 1")
+
+    # def test_ordered_list(self):
+    #     markdown = "1. First item\n2. Second item"
+    #     node = markdown_to_html_node(markdown)
+    #     self.assertEqual(node.children[0].tag, "ol")
+    #     self.assertEqual(len(node.children[0].children), 2)
+    #     self.assertEqual(node.children[0].children[1].children[0].value, "Second item")
+
+    # def test_mixed_blocks(self):
+    #     markdown = "# Title\n\nSome paragraph text.\n\n- List item"
+    #     node = markdown_to_html_node(markdown)
+    #     tags = [child.tag for child in node.children]
+    #     self.assertEqual(tags, ["h1", "p", "ul"])
+
+    # def test_empty_markdown(self):
+    #     markdown = ""
+    #     node = markdown_to_html_node(markdown)
+    #     self.assertEqual(node.tag, "div")
+    #     self.assertEqual(node.children, [])
+
+    # def test_heading_without_space_is_paragraph(self):
+    #     markdown = "##Heading with no space"
+    #     node = markdown_to_html_node(markdown)
+    #     self.assertEqual(node.children[0].tag, "p")
+    #     self.assertEqual(node.children[0].children[0].value.strip(), "##Heading with no space")
 
 if __name__ == "__main__":
     unittest.main()

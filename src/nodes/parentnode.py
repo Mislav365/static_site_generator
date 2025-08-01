@@ -10,7 +10,10 @@ class ParentNode(HTMLNode):
         if self.children is None:
             raise ValueError("All parent nodes must have children defined.")
         else:
-            string_to_html = f"<{self.tag}>"
+            string_to_html = f"<{self.tag}"
+            if self.props:
+                string_to_html += f" {self.props_to_html()}"
+            string_to_html += ">"
             for child in self.children:
                 string_to_html += child.to_html()
             string_to_html += f"</{self.tag}>"
