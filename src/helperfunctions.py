@@ -25,7 +25,7 @@ def extract_title(markdown):
             return line[2:].strip()
     raise ValueError("No title found in the markdown content.")
 
-def generate_page(from_path, template_path, dest_path):
+def generate_page(from_path, template_path, dest_path, base_path):
     if not os.path.exists(from_path):
         raise FileNotFoundError(f"The source file '{from_path}' does not exist.")
     if not os.path.exists(template_path):
@@ -45,15 +45,18 @@ def generate_page(from_path, template_path, dest_path):
     title = extract_title(content)
     page_content = template.replace("{{ Title }}", title).replace("{{ Content }}", html_rendered)
 
+    page_content = page_content.replace('href="/', f'href="{base_path}')
+    page_content = page_content.replace('src="/', f'src="{base_path}')
+
     with open(dest_path, 'w') as f:
         f.write(page_content)
 
-def generate_page_recursive(dir_path_content, template_path, dest_dir_path):
+def generate_page_recursive(dir_path_content, template_path, dest_dir_path, base_path="/"):
     if os.path.isdir(dir_path_content):
         for item in os.listdir(dir_path_content):
             item_path = os.path.join(dir_path_content, item)
             if os.path.isdir(item_path):
-                generate_page_recursive(item_path, template_path, os.path.join(dest_dir_path, item))
+                generate_page_recursive(item_path, template_path, os.path.join(dest_dir_path, item), base_path)
             elif item.endswith('.md'):
                 dest_path = os.path.join(dest_dir_path, item.replace('.md', '.html'))
-                generate_page(item_path, template_path, dest_path)
+                generate_page(item_path, template_path, dest_path, base_path)
