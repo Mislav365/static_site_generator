@@ -7,6 +7,8 @@ def main():
         base_path = "/"
     else:
         base_path = sys.argv[1]
+    if not base_path.endswith("/"):
+        base_path += "/"
     copy_from_dir_to_dir("./static", "./docs")
     generate_page_recursive("./content", "./template.html", "./docs", base_path)
 
