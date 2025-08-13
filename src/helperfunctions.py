@@ -45,8 +45,9 @@ def generate_page(from_path, template_path, dest_path, base_path):
     title = extract_title(content)
     page_content = template.replace("{{ Title }}", title).replace("{{ Content }}", html_rendered)
 
-    page_content = page_content.replace('href="/', f'href="{base_path}')
-    page_content = page_content.replace('src="/', f'src="{base_path}')
+    for quote in ('"', "'"):
+        page_content = page_content.replace(f'href={quote}/', f'href={quote}{base_path}')
+        page_content = page_content.replace(f'src={quote}/', f'src={quote}{base_path}')
 
     with open(dest_path, 'w') as f:
         f.write(page_content)
