@@ -50,12 +50,7 @@ def split_nodes_delimiter(old_nodes):
 
             # if delimiter is opening, we add the style to active_styles
             if kind == 'open':
-                if style == TextType.CODE:
-                # Clear all styles and only allow CODE
-                    active_styles = [TextType.CODE]
-                else:
-                    if TextType.CODE not in active_styles:
-                        active_styles.append(style)
+                active_styles.append(style)
             # if it's closing, we remove it from active_styles if it exists
             elif kind == 'close':
                 if style in active_styles:
@@ -93,7 +88,32 @@ def _parse_styled_spans(indexes):
 
     # sort all events by position in ascending order so we can process them correctly
     events.sort()
-    return events
+
+    code_ranges = []
+    stack = []
+
+    for pos, delim, kind in events:
+        if delim == '`':
+            if kind == 'open':
+                stack.append(pos)
+            elif kind == 'close' and stack:
+                start = stack.pop()
+                code_ranges.append((start, pos))
+
+    def is_inside_code(pos):
+        for start, end in code_ranges:
+            if start < pos < end:
+                return True
+        return False
+
+    filtered_events = [
+        (pos, delim, kind)
+        for (pos, delim, kind) in events
+        if not is_inside_code(pos)
+    ]
+
+    return filtered_events
+
 
 
 # function that finds all valid delimiter positions in the given text
@@ -242,9 +262,8 @@ def markdown_to_blocks(markdown):
     raw_blocks = re.split(r'\n\s*\n', markdown.strip())
     blocks = []
     for block in raw_blocks:
-        lines = block.splitlines()
-        stripped_lines = [line.strip() for line in lines]
-        blocks.append('\n'.join(stripped_lines))
+        lines = [line.strip() for line in block.splitlines()]
+        blocks.append('\n'.join(lines))
     return blocks
 
 def block_to_block_type(block):
@@ -276,7 +295,9 @@ def markdown_to_html_node(markdown):
         tag = block_type.value
         if (block_type == BlockType.HEADING):
             tag += str(count_leading_hashes(block))
-        block_children = text_to_children(modify_block(block, block_type))
+            block_children = text_to_children(modify_block(block, block_type))
+        else:
+            block_children = text_to_children(modify_block(block, block_type))
         children.append(ParentNode(tag,block_children))
     return ParentNode("div", children)
 
@@ -308,15 +329,29 @@ def nested_nodes_checker(text_nodes):
     return html_nodes
 
 def build_nested_html(group):
-    node = text_node_to_html_node(group[-1])
-
-    for text_node in reversed(group[:-1]):
+    new_group = modify_if_code(group)
+    node = text_node_to_html_node(new_group[-1])
+    if node.tag == "code":
+        return node
+    for text_node in reversed(new_group[:-1]):
         tag = get_tag_from_text_type(text_node.text_type)
         if tag == "a":
             node = ParentNode(tag, [node], props={"href": text_node.url})
         else:
             node = ParentNode(tag, [node])
     return node
+
+def check_if_code(group):
+    for i, text_node in enumerate(group):
+        if text_node.text_type == TextType.CODE:
+            return i
+    return -1
+
+def modify_if_code(group):
+    code_index = check_if_code(group)
+    if code_index == -1:
+        return group
+    return group[:code_index + 1]
 
 def get_tag_from_text_type(text_type):
     match(text_type):
@@ -346,24 +381,32 @@ def modify_block(block, block_type):
     if block_type == BlockType.HEADING:
         # Only modify first line
         return re.sub(r"^#{1,6}\s*", "", lines[0])
-
+    
+#TODO : handle markdown backticks starting or ending in line with text
     elif block_type == BlockType.CODE:
-        # Drop the first and last line (the ``` markers)
-        return "\n".join(lines[1:-1])
+        # Change the first and last line into <code></code>(the ``` markers)
+        if len(lines) == 1:
+            return "`" + lines[0][3:-3].strip() + "`"
+        else:
+            content = "\n".join(lines[1:-1])
+            if not content.endswith("\n"):
+                content += "\n"
+            return "`" + content + "`"
 
+    
     elif block_type == BlockType.QUOTE:
         # Remove leading '>' (already stripped of space)
-        return "\n".join([line[1:] if line.startswith(">") else line for line in lines])
+        return "".join([line[1:] if line.startswith(">") else line for line in lines])
 
     elif block_type == BlockType.UNORDERED_LIST:
-        return "\n".join(
+        return "".join(
             [f"<li>{line[2:].strip()}</li>" for line in lines if line.startswith("- ")]
         )
 
     elif block_type == BlockType.ORDERED_LIST:
-        return "\n".join(
-            [f"<li>{re.sub(r'^\d+\.\s*', '', line).strip()}</li>" for line in lines]
-        )
+        return "".join([f"<li>{re.sub(r'^\d+\.\s*', '', line).strip()}</li>" for line in lines])
 
+    elif block_type == BlockType.PARAGRAPH:
+        return ' '.join(line.strip() for line in block.splitlines())
     else:
         return block
