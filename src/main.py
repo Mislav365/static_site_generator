@@ -1,17 +1,10 @@
-from nodes.textnode import TextNode,TextType
-from markdownparser import markdown_to_html_node
+import os
+
+from helperfunctions import copy_from_dir_to_dir, generate_page_recursive
 
 def main():
-    text_node = TextNode("This is some anchor text", TextType.LINK, "https://www.boot.dev")
-    print(text_node)
-    markdown = """
-        ```
-        This is text that _should_ remain
-        the **same** even with inline stuff
-        ```
-        """
-    node = markdown_to_html_node(markdown)
-    print(node.to_html())
+    copy_from_dir_to_dir("./static", "./public")
+    generate_page_recursive("./content", "./template.html", "./public")
 
 
 if __name__ == "__main__":

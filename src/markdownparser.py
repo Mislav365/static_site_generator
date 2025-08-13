@@ -364,7 +364,7 @@ def get_tag_from_text_type(text_type):
         case(TextType.LINK):
             return "a"
         case _:
-            raise Excepction("invalid text type")
+            raise ValueError(f"Unknown TextType: {text_type}")
 
 def count_leading_hashes(text):
     count = 0
@@ -381,7 +381,7 @@ def modify_block(block, block_type):
     if block_type == BlockType.HEADING:
         # Only modify first line
         return re.sub(r"^#{1,6}\s*", "", lines[0])
-    
+
 #TODO : handle markdown backticks starting or ending in line with text
     elif block_type == BlockType.CODE:
         # Change the first and last line into <code></code>(the ``` markers)
@@ -393,10 +393,10 @@ def modify_block(block, block_type):
                 content += "\n"
             return "`" + content + "`"
 
-    
+
     elif block_type == BlockType.QUOTE:
         # Remove leading '>' (already stripped of space)
-        return "".join([line[1:] if line.startswith(">") else line for line in lines])
+        return "".join(re.sub(r"^>\s*", "", line).lstrip() for line in lines)
 
     elif block_type == BlockType.UNORDERED_LIST:
         return "".join(
@@ -404,7 +404,12 @@ def modify_block(block, block_type):
         )
 
     elif block_type == BlockType.ORDERED_LIST:
-        return "".join([f"<li>{re.sub(r'^\d+\.\s*', '', line).strip()}</li>" for line in lines])
+        return "".join(
+            [
+                "<li>{}</li>".format(re.sub(r'^\d+\.\s*', '', line).strip())
+                for line in lines
+            ]
+        )
 
     elif block_type == BlockType.PARAGRAPH:
         return ' '.join(line.strip() for line in block.splitlines())
